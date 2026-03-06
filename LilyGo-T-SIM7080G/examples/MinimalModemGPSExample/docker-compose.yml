@@ -1,0 +1,184 @@
+# Production GPS Cloud Stack — LilyGo T-SIM7080G
+#
+# QUICK START:
+#   1. Install Docker + Docker Compose on your server/VPS
+#   2. Copy this file: docker-compose up -d
+#   3. Access dashboards (see below)
+#   4. Flash LilyGo with MQTTS configuration
+#
+# SERVICES:
+#   emqx:      MQTT broker with TLS (8883) and dashboard (18083)
+#   nodered:   Visual data processing flows (1880)
+#   influxdb:  Time-series database for GPS tracks (8086)
+#   grafana:   Dashboards and maps (3000)
+#
+# TLS/SSL SETUP (Production):
+#   Option A: Let's Encrypt (recommended)
+#     certbot certonly --standalone -d gps.yourdomain.com
+#     Update docker-compose to use certs
+#
+#   Option B: Self-signed (testing only)
+#     ./generate-certs.sh (see CLOUD_SETUP.md)
+
+version: '3.8'
+
+services:
+  # MQTT Broker (EMQX) — Core service
+  emqx:
+    image: emqx/emqx:5.4.0  # Pin version for stability
+    container_name: emqx-broker
+    restart: unless-stopped
+    ports:
+      # MQTT protocols
+      - "1883:1883"     # Plain MQTT (disable in production firewall)
+      - "8883:8883"     # MQTTS (TLS) — USE THIS
+      # Management
+      - "18083:18083"   # Dashboard
+      # WebSocket (optional, for browser clients)
+      - "8083:8083"     # WS
+      - "8084:8084"     # WSS (WebSocket Secure)
+    environment:
+      # EMQX configuration
+      - EMQX_NAME=gps-broker
+      - EMQX_HOST=auto
+      
+      # Authentication (change in production!)
+      # For testing: allow anonymous
+      - EMQX_AUTHENTICATION__1__MECHANISM=password_based
+      - EMQX_AUTHENTICATION__1__BACKEND=built_in_database
+      - EMQX_ALLOW_ANONYMOUS=true
+      
+      # MQTT settings
+      - EMQX_MQTT__MAX_PACKET_SIZE=1MB
+      - EMQX_MQTT__MAX_CLIENTID_LEN=256
+      - EMQX_MQTT__RETAIN_AVAILABLE=true
+      
+      # Zones
+      - EMQX_ZONES__DEFAULT__MQTT__MAX_PACKET_SIZE=1MB
+      - EMQX_ZONES__DEFAULT__MQTT__MAX_INFLIGHT=128
+    volumes:
+      - emqx-data:/opt/emqx/data
+      - emqx-log:/opt/emqx/log
+      # TLS certificates (mount your certs here)
+      # - ./certs:/opt/emqx/etc/certs:ro
+    networks:
+      - gps-network
+    healthcheck:
+      test: ["CMD", "emqx", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Node-RED — Data processing and forwarding
+  nodered:
+    image: nodered/node-red:3.1
+    container_name: nodered
+    restart: unless-stopped
+    ports:
+      - "1880:1880"
+    volumes:
+      - node-red-data:/data
+      # Optional: pre-install nodes
+      - ./node-red-flows:/data/flows:ro
+    environment:
+      - TZ=Europe/Bucharest
+      # Secure Node-RED (generate password with: node-red-admin hash-pw)
+      # - NODE_RED_CREDENTIAL_SECRET=your-secret-key
+    depends_on:
+      - emqx
+      - influxdb
+    networks:
+      - gps-network
+
+  # InfluxDB — Time-series database
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      # Backup directory
+      - ./backups:/backups
+    environment:
+      # Initial setup (change these passwords!)
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=gps-admin-password-123
+      - DOCKER_INFLUXDB_INIT_ORG=gps-tracking
+      - DOCKER_INFLUXDB_INIT_BUCKET=gps-data
+      - DOCKER_INFLUXDB_INIT_RETENTION=30d
+      # For 1 year retention: - DOCKER_INFLUXDB_INIT_RETENTION=365d
+    networks:
+      - gps-network
+
+  # Grafana — Visualization and maps
+  grafana:
+    image: grafana/grafana:10.3.0
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      # Provisioning (auto-configure data sources)
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      # Dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      # Security (change these!)
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=grafana-admin-123
+      - GF_SECURITY_SECRET_KEY=your-secret-key-here
+      # Features
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      - GF_SERVER_ROOT_URL=http://your-server-ip:3000
+      # Anonymous access (disable in production)
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    depends_on:
+      - influxdb
+    networks:
+      - gps-network
+
+  # Optional: MQTT Exporter (Prometheus metrics)
+  mqtt-exporter:
+    image: sapcc/mqtt-exporter:latest
+    container_name: mqtt-exporter
+    restart: unless-stopped
+    environment:
+      - MQTT_ADDRESS=emqx:1883
+      - MQTT_TOPIC=lilygo/gps/#
+      - PROMETHEUS_PORT=9000
+    depends_on:
+      - emqx
+    networks:
+      - gps-network
+    profiles:
+      - monitoring  # Start with: docker-compose --profile monitoring up -d
+
+  # Optional: Certbot for Let's Encrypt (renewal)
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot
+    volumes:
+      - ./certs:/etc/letsencrypt
+      - ./certbot-data:/var/lib/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
+    profiles:
+      - tls  # Start with: docker-compose --profile tls up -d
+
+volumes:
+  emqx-data:
+  emqx-log:
+  node-red-data:
+  influxdb-data:
+  grafana-data:
+  certbot-data:
+
+networks:
+  gps-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

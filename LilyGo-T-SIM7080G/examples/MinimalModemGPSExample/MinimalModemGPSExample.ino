@@ -45,8 +45,8 @@ XPowersPMU PMU;
 // =============================================================================
 
 // ── Wi-Fi ─────────────────────────────────────────────────────────────────────
-const char* WIFI_SSID = "Orange-DKZTeU-2G";
-const char* WIFI_PASS = "4A22FxKGyxZy24DhbA";
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
 // ── MQTT Cloud Broker ─────────────────────────────────────────────────────────
 // Option 1: Public test broker (no TLS)

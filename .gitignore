@@ -1,0 +1,52 @@
+# PlatformIO
+.pio
+.pioenvs
+.piolibdeps
+.clang_complete
+.gcc-flags.json
+/platformio.ini.local
+
+# Arduino
+*.elf
+*.bin
+*.hex
+*.o
+*.a
+*.d
+*.obj
+*.lib
+*.mod
+*.lex
+*.res
+*.sym
+*.exp
+*.map
+*.swp
+*.bak
+*~
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+*.code-workspace
+
+# Python (some examples might have scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+
+# System
+.DS_Store
+Thumbs.db
+
+# Project Specific
+LilyGo-T-SIM7080G/test/
+# If you have a credentials.h or secret.h, uncomment the next line
+# *secret.h
+# *credentials.h
